@@ -115,7 +115,13 @@ export class Player {
   }
 
   _walk(dt, controls, game) {
-    const wantRun = controls.run ? PLAYER.run : PLAYER.walk;
+    // Rafa can sprint, but not forever: the bar under his health is stamina.
+    const wantsRun = Boolean(controls.run) && Math.hypot(controls.moveX, controls.moveY) > 0.1;
+    if (wantsRun) this.stamina = clamp(this.stamina - dt * 0.16, 0, 1);
+    else this.stamina = clamp(this.stamina + dt * 0.11, 0, 1);
+    this.breath = wantsRun ? Math.min(1, this.breath + dt * 0.8) : Math.max(0, this.breath - dt * 0.5);
+    const tired = this.stamina < 0.18 ? 0.78 : 1;
+    const wantRun = (wantsRun && this.stamina > 0.04 ? PLAYER.run : PLAYER.walk) * tired;
     const wet = game.city.surface(this.x, this.y) === 'water';
     this.inWater = wet;
     const speed = wet ? PLAYER.swim : wantRun;

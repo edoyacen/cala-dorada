@@ -49,6 +49,12 @@ export class Vehicle {
     this.seed = opts.seed ?? Math.floor(Math.random() * 1e6);
     this.rng = makeRng(this.seed);
     this.driverName = opts.driverName ?? null;
+    // Trim and a rear wing are what make a showroom car read as a show car:
+    // the renderer paints a stripe and a wing from these two flags.
+    this.spoiler = Boolean(opts.spoiler ?? (this.type === 'sport' || this.type === 'muscle'));
+    this.stripe = opts.stripe ?? null;
+    this.hazard = 0;         // seconds left on the hazard flashers
+    this.hero = Boolean(opts.hero);
   }
 
   get damage() {
@@ -71,6 +77,7 @@ export class Vehicle {
    */
   step(dt, controls, city) {
     const spec = this.spec;
+    this.hazard = Math.max(0, this.hazard - dt);
     this.throttle = controls.throttle ?? 0;
     this.steer = approach(this.steer, controls.steer ?? 0, dt * 5.2);
     const handbrake = Boolean(controls.handbrake);
@@ -171,6 +178,7 @@ export class Vehicle {
   /** Move along the lane polyline for one step; used by every non-player car. */
   stepLane(dt, blocked = 0) {
     if (!this.lane) return;
+    this.hazard = Math.max(0, this.hazard - dt);
     this.lane.maxSpeed = this.spec.top * (1 - this.damage * 0.4);
     this.lane.update(dt, blocked);
     const prev = this.heading;
@@ -178,6 +186,7 @@ export class Vehicle {
     this.y = this.lane.y;
     this.heading = this.lane.heading;
     this.speed = this.lane.speed;
+    this.braking = this.lane.braking ?? 0;
     this.vx = Math.cos(this.heading) * this.speed;
     this.vy = Math.sin(this.heading) * this.speed;
     this.wheel += this.speed * dt * 2.4;
@@ -211,6 +220,7 @@ export function parkedVehicle(spot) {
     h: spot.h,
     colour: spot.colour,
     locked: spot.locked ?? false,
+    stripe: spot.stripe ?? null,
     seed: Math.floor(spot.x * 13 + spot.y * 7),
   });
 }

@@ -2,8 +2,9 @@
  * main.ts — the entry program for Cala Dorada (gta6-01), Node 22, standard
  * library only. It hands the game in: it copies game/ and screenshots/ beside
  * this file into the output directory (`/output` under the grader,
- * MAKEFUN_OUTPUT_DIR elsewhere) and writes the dossier the judge reads with the
- * vendored make.fun library.
+ * MAKEFUN_OUTPUT_DIR elsewhere), checks that every frame is a JPEG inside the
+ * caps, and writes the dossier the judge reads with the vendored make.fun
+ * library.
  *
  *   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
  *
@@ -11,7 +12,9 @@
  * the file system with no build step and no network request. The screenshots
  * are the four frames the game's own shot mode staged in a browser.
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync,
+} from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -53,22 +56,48 @@ function listFiles(dir) {
   return files.sort();
 }
 
+/** Total bytes of a list of files under one directory. */
+function totalBytes(dir, files) {
+  return files.reduce((sum, file) => sum + statSync(join(dir, file)).size, 0);
+}
+
 if (!existsSync(join(root, 'game', 'index.html'))) {
   throw new Error('game/index.html is missing: the entry needs the game it hands in');
+}
+if (!existsSync(join(root, 'screenshots'))) {
+  throw new Error('screenshots/ is missing: the judge reads the four frames first');
+}
+
+// The screenshots are checked before they are copied: four JPEGs, each inside
+// the byte cap, is what the submission form takes.
+const shots = listFiles(join(root, 'screenshots'));
+if (shots.length !== CAPS.screenshots.max) {
+  throw new Error(`expected ${CAPS.screenshots.max} screenshots, found ${shots.length}`);
+}
+for (const shot of shots) {
+  const file = join(root, 'screenshots', shot);
+  const size = statSync(file).size;
+  const head = readFileSync(file, { encoding: null, flag: 'r' }).subarray(0, 3);
+  const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  if (!isJpeg) throw new Error(`${shot} is not a JPEG`);
+  if (size > CAPS.screenshots.max_bytes) {
+    throw new Error(`${shot} is ${size} bytes, over the ${CAPS.screenshots.max_bytes}-byte cap`);
+  }
 }
 
 mkdirSync(out, { recursive: true });
 copyTree(join(root, 'game'), join(out, 'game'));
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(root, 'screenshots'))) {
-  copyTree(join(root, 'screenshots'), join(out, 'screenshots'));
-}
+copyTree(join(root, 'screenshots'), join(out, 'screenshots'));
 
 const dossier = buildDossier(out, CAPS);
 writeFileSync(join(out, 'dossier.json'), dossier);
 
 const gameFiles = listFiles(join(out, 'game'));
-const shots = listFiles(join(out, 'screenshots'));
+const shotTotal = totalBytes(join(out, 'screenshots'), shots);
+const gameTotal = totalBytes(join(out, 'game'), gameFiles);
 console.log(
-  `cala dorada: ${gameFiles.length} game files, ${shots.length} screenshots, dossier ${dossier.byteLength} bytes -> ${out}`,
+  `cala dorada: ${gameFiles.length} game files (${(gameTotal / 1024).toFixed(1)} kB), `
+  + `${shots.length} screenshots (${(shotTotal / 1024).toFixed(0)} kB, cover ${shots[0]}), `
+  + `dossier ${dossier.byteLength} bytes -> ${out}`,
 );

@@ -4,7 +4,7 @@
  * They walk a block's pavement, cross for a coffee, run screaming from gunfire
  * and from a car on the kerb, and leave a body and a little cash behind.
  */
-import { TILE, ROAD, SIDEWALK, PED, CITY, BLOCKS } from './config.js';
+import { TILE, ROAD, SIDEWALK, PED, CITY, BLOCKS, PURSUIT } from './config.js';
 import { makeRng, dist, clamp, approach } from './random.js';
 import { districtOf } from './city.js';
 
@@ -43,6 +43,8 @@ export class Ped {
     this.role = opts.role ?? 'civilian';
     this.name = opts.name ?? null;
     this.district = opts.district ?? 'residential';
+    this.filming = 0;          // seconds left holding a phone up at the chase
+    this.phone = opts.phone ?? false;
   }
 }
 
@@ -130,10 +132,20 @@ export class Peds {
         continue;
       }
       ped.fear = Math.max(0, ped.fear - dt * 0.35);
+      ped.filming = Math.max(0, ped.filming - dt);
       if (ped.fear > 0.15) {
         this._flee(ped, dt);
       } else {
         this._walk(ped, dt);
+      }
+      // A speeding cruiser or a stolen car is worth a phone video.
+      if (ped.fear < 0.15 && ped.state !== 'down') {
+        const near = this._carNear(ped.x, ped.y, PURSUIT.filmRadius);
+        if (near && near.speed > 13 && (near.police || near === player.veh)) {
+          ped.filming = 2.4;
+          ped.h = Math.atan2(near.y - ped.y, near.x - ped.x);
+          ped.state = 'idle';
+        }
       }
       // A car bumper ends the argument.
       if (ped.state !== 'down' && ped.fear < 0.6) {

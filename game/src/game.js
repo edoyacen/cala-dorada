@@ -5,7 +5,7 @@
  * and hands the whole thing to the renderer and the HUD each frame.
  */
 import {
-  STEP, PLAYER, WEAPONS, HEAT, TILE, CITY, BEACH, WORLD_H, CAR_TYPES, RADIO_STATIONS, display,
+  STEP, PLAYER, WEAPONS, HEAT, TILE, CITY, BEACH, WORLD_H, CAR_TYPES, RADIO_STATIONS, display, SAFEHOUSE, C,
 } from './config.js';
 import { makeRng, clamp, dist, lerp, hashString } from './random.js';
 import { City } from './city.js';
@@ -139,10 +139,13 @@ export class Game {
         this.update(STEP);
         this.accumulator -= STEP;
         steps += 1;
+        // One fixed step consumes one set of key edges. Clearing once per
+        // rendered frame let a slow frame run two steps, so a toggle key
+        // undid itself in the same frame: M closed the map and reopened it.
+        this.input.endFrame();
       }
       if (steps === 4) this.accumulator = 0;
       this.render();
-      this.input.endFrame();
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -232,6 +235,10 @@ export class Game {
     if (events.shot) this.firePlayerWeapon(events.shot, aimWorld);
     if (events.empty && !shot) this.notify('No ammo. Find some.', 'danger');
     if (events.tooFast && !shot) this.notify('Slow down before you step out.', 'info');
+    // Standing on the safehouse pad, E puts the game away for next time.
+    if (!shot && controls.enter && !events.enteredCar && !events.exitedCar && p.onFoot && this.nearSafehouse()) {
+      this.saveAtSafehouse();
+    }
     this.stats.distanceKm += dist(before.x, before.y, p.x, p.y) / 1000;
     // Peds and AI.
     this.traffic.update(dt);
@@ -346,6 +353,13 @@ export class Game {
         this.audio.ui(true);
         return;
       }
+      if (input.hit('KeyF')) {
+        // Fullscreen, for the people who want the coast to fill the room.
+        const root = document.documentElement;
+        if (document.fullscreenElement) document.exitFullscreen?.();
+        else root.requestFullscreen?.().catch(() => {});
+        return;
+      }
       if (input.hit('KeyJ')) {
         this.callNextJob();
         return;
@@ -365,6 +379,16 @@ export class Game {
           } else {
             this.notify(`No ${WEAPONS[id].name} yet`, 'info');
           }
+        }
+      }
+      // The mouse wheel walks the weapons Rafa actually owns.
+      if (input.mouse.wheel) {
+        const owned = ['pistol', 'smg', 'shotgun'].filter((id) => this.player.weapons[id]);
+        if (owned.length) {
+          const at = owned.indexOf(this.player.weapon);
+          const next = owned[(at + (input.mouse.wheel > 0 ? 1 : owned.length - 1)) % owned.length];
+          this.player.weapon = next;
+          this.audio.ui(input.mouse.wheel > 0);
         }
       }
       return;
@@ -477,6 +501,7 @@ export class Game {
         this.stats.crashes += 1;
         this.audio.crash(mine.x, mine.y, clamp(rel / 22, 0.2, 1));
         this.effects.sparks(mine.x + nx * 1.2, mine.y + ny * 1.2, Math.min(12, Math.round(rel * 0.6)));
+        if (rel > 11) this.effects.debris(mine.x, mine.y, mine.heading, 5);
         mine.hurt(rel * 0.7);
         if (car.driver) this.damageCar(car, rel * 1.1, 'player', car.x, car.y);
         this.effects.kick(clamp(rel / 40, 0.06, 0.6));
@@ -654,6 +679,7 @@ export class Game {
     this.effects.kick(clamp(impact.speed / 40, 0.05, 0.5));
     if (impact.speed > 14) {
       this.effects.glass(car.x, car.y, 6, car.heading);
+      this.effects.debris(car.x, car.y, car.heading, 7);
       this.player.hurt(Math.max(0, impact.speed - 22) * 0.8, { kind: 'crash' }, this);
     }
     // Anyone standing in the way is thrown.
@@ -786,6 +812,26 @@ export class Game {
     if (this.noticeLog.length > 30) this.noticeLog.pop();
   }
 
+  /** True when Rafa is standing on the safehouse pad in Jardines. */
+  nearSafehouse(radius = SAFEHOUSE.radius) {
+    const p = this.player;
+    if (!p || p.dead) return false;
+    return Math.hypot(p.x - SAFEHOUSE.x, p.y - SAFEHOUSE.y) < radius;
+  }
+
+  /** Save at the flat. The prompt the safehouse frame shows calls this. */
+  saveAtSafehouse() {
+    const data = this.saveGame();
+    if (!data) {
+      this.notify('The flat could not write the save', 'danger');
+      return null;
+    }
+    this.notify(`Saved at ${SAFEHOUSE.name}`, 'good');
+    this.effects.floatText(SAFEHOUSE.x, SAFEHOUSE.y - 2.4, 'SAVED', '#9df0b4', 1.6);
+    this.audio.saveChime();
+    return data;
+  }
+
   dialogue(speaker, text, seconds = 4) {
     this.dialogueQueueLines.push({ speaker, text, seconds });
   }
@@ -846,12 +892,16 @@ export class Game {
       siren = Math.max(siren, clamp(1 - dist(ux, uy, p.x, p.y) / 70, 0, 1));
     }
     this.audio.listener = { x: p.x, y: p.y };
+    const heli = this.police.heli;
+    const heliNear = heli ? clamp(1 - dist(heli.x, heli.y, p.x, p.y) / 240, 0, 1) : 0;
     this.audio.update(dt, {
       x: p.x, y: p.y,
       speed: p.veh ? p.veh.speed : 0,
       inCar: Boolean(p.veh),
       siren,
-      radio: this.radio,
+      heli: heliNear,
+      // The radio is in the car, and on the step at the safehouse.
+      radio: this.radio && (Boolean(p.veh) || this.nearSafehouse(14)),
       menu: this.screen === 'title',
     });
   }
@@ -904,6 +954,9 @@ export class Game {
     this.missions.state = 'idle';
     this.missions.mission = null;
     this.clock.hour = save.hour ?? 10.4;
+    if (typeof save.radio === 'number' && this.audio) this.audio.station = clamp(save.radio, 0, RADIO_STATIONS.length - 1);
+    if (typeof save.elapsed === 'number') this.time = save.elapsed;
+    if (typeof save.rain === 'number') this.weather.rain = clamp(save.rain, 0, 1);
     this.storyComplete = Boolean(save.story);
     this.camera.x = p.x;
     this.camera.y = p.y;
@@ -934,6 +987,7 @@ export class Game {
       this.drawAbout(ctx, cam);
     }
     if (this.shotMode && this.shotMode.caption) this.drawCaption(ctx, cam, this.shotMode.caption);
+    if (this.shotMode && this.shotMode.brand) this.drawBrand(ctx, cam);
     void rr;
     void display;
     void lerp;
@@ -977,13 +1031,50 @@ export class Game {
   drawCaption(ctx, cam, caption) {
     const k = Math.min(cam.width / 1280, cam.height / 720);
     ctx.save();
-    ctx.fillStyle = 'rgba(8,10,14,0.6)';
-    rr(ctx, cam.width - 336 * k, cam.height - 54 * k, 310 * k, 30 * k, 6 * k);
+    ctx.font = '600 ' + (11 * k) + 'px ui-sans-serif, system-ui, sans-serif';
+    if (this.shotMode?.brand) {
+      // Under the cover wordmark, where no panel or speedometer lives.
+      const bw = ctx.measureText(caption).width + 30 * k;
+      ctx.fillStyle = 'rgba(8,10,14,0.55)';
+      rr(ctx, cam.width / 2 - bw / 2, 88 * k, bw, 24 * k, 12 * k);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,241,220,0.88)';
+      ctx.textAlign = 'center';
+      ctx.fillText(caption, cam.width / 2, 104 * k);
+    } else {
+      ctx.fillStyle = 'rgba(8,10,14,0.6)';
+      rr(ctx, cam.width - 356 * k, cam.height - 54 * k, 330 * k, 30 * k, 6 * k);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,241,220,0.9)';
+      ctx.textAlign = 'right';
+      ctx.fillText(caption, cam.width - 24 * k, cam.height - 34 * k);
+    }
+    ctx.restore();
+  }
+
+  /** The wordmark the cover frame carries, between the two top panels. */
+  drawBrand(ctx, cam) {
+    const w = cam.width;
+    const k = Math.min(w / 1280, cam.height / 720);
+    const cx = w / 2;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(8,10,14,0.5)';
+    rr(ctx, cx - 176 * k, 18 * k, 352 * k, 64 * k, 10 * k);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,241,220,0.9)';
-    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(caption, cam.width - 24 * k, cam.height - 34 * k);
+    ctx.strokeStyle = 'rgba(255,214,150,0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    const face = ctx.createLinearGradient(cx, 30 * k, cx, 62 * k);
+    face.addColorStop(0, '#fff4dc');
+    face.addColorStop(1, '#ffbe86');
+    ctx.fillStyle = face;
+    ctx.font = display(27 * k);
+    ctx.fillText('CALA DORADA', cx, 50 * k);
+    ctx.fillStyle = C.neon;
+    ctx.font = display(8.5 * k);
+    ctx.fillText('A  SUN-SOAKED  CRIME  STORY', cx, 68 * k);
+    ctx.textAlign = 'left';
     ctx.restore();
   }
 }

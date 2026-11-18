@@ -41,6 +41,19 @@ export function makeRng(seed = 1) {
     chance(p) {
       return rng.next() < p;
     },
+    /** A shuffled copy, for laying out a row of cars without repeats. */
+    shuffle(list) {
+      const out = list.slice();
+      for (let k = out.length - 1; k > 0; k -= 1) {
+        const j = Math.floor(rng.next() * (k + 1));
+        [out[k], out[j]] = [out[j], out[k]];
+      }
+      return out;
+    },
+    /** The nth of `count` evenly spread values in a range. */
+    spread(n, count, lo, hi) {
+      return count <= 1 ? lo : lo + ((hi - lo) * n) / (count - 1);
+    },
     sign() {
       return rng.next() < 0.5 ? -1 : 1;
     },
@@ -63,6 +76,13 @@ export function makeRng(seed = 1) {
 export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 /** Linear interpolation. */
 export const lerp = (a, b, t) => a + (b - a) * t;
+/** A smooth 0..1 ramp between two edges. */
+export function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0 || 1), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+/** Ease-out for things that should arrive and settle, like a camera. */
+export const easeOut = (t) => 1 - (1 - clamp(t, 0, 1)) ** 3;
 /** Move `v` toward `target` by at most `step`. */
 export function approach(v, target, step) {
   if (v < target) return Math.min(v + step, target);

@@ -84,24 +84,60 @@ export class Camera {
     this.bounds.y1 = y + this.height / zoom / 2;
   }
 
+  /**
+   * Frame a list of world points with a little air around them. The staged
+   * shots use it instead of hand-tuned numbers, so the cover keeps the player,
+   * the cruisers and the helicopter in frame at any window size.
+   */
+  setFrame(points, opts = {}) {
+    if (!points.length) return;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const p of points) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+    const pad = opts.pad ?? 1.35;
+    const bw = Math.max(opts.minSpan ?? 70, (x1 - x0) * pad);
+    const bh = Math.max(opts.minSpan ?? 70, (y1 - y0) * pad);
+    let zoom = Math.min(this.width / bw, this.height / bh);
+    zoom = Math.min(opts.maxZoom ?? 14, Math.max(opts.minZoom ?? 3.2, zoom));
+    const cx = opts.centerX ?? (x0 + x1) / 2;
+    const cy = opts.centerY ?? (y0 + y1) / 2;
+    this.setCinematic(cx, cy, zoom, opts.angle ?? 0);
+  }
+
   /** Push the world transform onto a context. */
   apply(ctx) {
     ctx.translate(this.width / 2 + this.shakeX, this.height / 2 + this.shakeY);
+    if (this.angle) ctx.rotate(this.angle);
     ctx.scale(this.zoom, this.zoom);
     ctx.translate(-this.x, -this.y);
   }
 
   worldToScreen(x, y) {
+    const dx = (x - this.x) * this.zoom;
+    const dy = (y - this.y) * this.zoom;
+    const c = Math.cos(this.angle);
+    const s = Math.sin(this.angle);
     return {
-      x: (x - this.x) * this.zoom + this.width / 2 + this.shakeX,
-      y: (y - this.y) * this.zoom + this.height / 2 + this.shakeY,
+      x: dx * c - dy * s + this.width / 2 + this.shakeX,
+      y: dx * s + dy * c + this.height / 2 + this.shakeY,
     };
   }
 
   screenToWorld(x, y) {
+    const dx = x - this.width / 2 - this.shakeX;
+    const dy = y - this.height / 2 - this.shakeY;
+    const c = Math.cos(-this.angle);
+    const s = Math.sin(-this.angle);
     return {
-      x: (x - this.width / 2 - this.shakeX) / this.zoom + this.x,
-      y: (y - this.height / 2 - this.shakeY) / this.zoom + this.y,
+      x: (dx * c - dy * s) / this.zoom + this.x,
+      y: (dx * s + dy * c) / this.zoom + this.y,
     };
   }
 

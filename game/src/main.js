@@ -6,10 +6,18 @@
 import { Game } from './game.js';
 
 const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
+// The four staged scenes, plus the two older names kept for links that still
+// point at them. Anything else boots the live title screen.
+const SHOTS = new Set(['chase', 'firefight', 'meet', 'map', 'drive', 'title']);
+const requested = params.get('shot');
+const shot = requested && SHOTS.has(requested) ? requested : null;
 const seed = params.get('seed') ?? 'cala-dorada';
 const canvas = document.getElementById('stage');
 const boot = document.getElementById('boot');
+if (shot) {
+  document.title = `Cala Dorada — ${shot}`;
+  document.documentElement.dataset.scene = shot;
+}
 
 function fail(message) {
   if (!boot) return;
@@ -25,6 +33,13 @@ try {
     setTimeout(() => boot.remove(), 600);
   }
   game.start(shot ? game.shotMode : null);
+  // A frame has been painted once the loop has run twice; the capture harness
+  // waits on this flag instead of guessing a timeout.
+  window.__calaReady = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.__calaReady = true;
+    window.calaScene = shot ?? 'play';
+  }));
   // Keep the mouse cursor out of the canvas paint; the game draws its own.
   canvas.addEventListener('pointerdown', () => canvas.focus());
 } catch (error) {

@@ -19,6 +19,8 @@ export class Audio {
     this.engineOsc2 = null;
     this.sirenOsc = null;
     this.sirenGain = null;
+    this.rotorOsc = null;
+    this.rotorGain = null;
     this.ready = false;
     this.muted = false;
     this.station = 0;
@@ -72,6 +74,19 @@ export class Audio {
     this.sirenOsc.connect(this.sirenGain);
     this.sirenGain.connect(this.master);
     this.sirenOsc.start();
+    // Helicopter rotor: a low, pulsing thump that rides under the sirens.
+    this.rotorGain = this.ctx.createGain();
+    this.rotorGain.gain.value = 0;
+    const rotorFilter = this.ctx.createBiquadFilter();
+    rotorFilter.type = 'lowpass';
+    rotorFilter.frequency.value = 150;
+    this.rotorGain.connect(rotorFilter);
+    rotorFilter.connect(this.master);
+    this.rotorOsc = this.ctx.createOscillator();
+    this.rotorOsc.type = 'sawtooth';
+    this.rotorOsc.frequency.value = 42;
+    this.rotorOsc.connect(this.rotorGain);
+    this.rotorOsc.start();
     this._noiseBuffer = this._makeNoise(2);
     this.ready = true;
     this.nextNote = this.ctx.currentTime + 0.2;
@@ -242,6 +257,13 @@ export class Audio {
     this._tone(up ? NOTE(9) : NOTE(5), { gain: 0.1, decay: 0.1, type: 'square' });
   }
 
+  /** The little two-note the safehouse says when the game is written down. */
+  saveChime() {
+    if (!this.ready) return;
+    this._tone(NOTE(15), { gain: 0.11, decay: 0.22, type: 'triangle' });
+    setTimeout(() => this._tone(NOTE(22), { gain: 0.09, decay: 0.4, type: 'triangle' }), 130);
+  }
+
   mission() {
     if (!this.ready) return;
     const root = -5;
@@ -273,6 +295,10 @@ export class Audio {
     } else {
       this.sirenGain.gain.setTargetAtTime(0, t, 0.3);
     }
+    // The rotor gets louder and slower as the machine closes in.
+    const heli = clamp(state.heli ?? 0, 0, 1);
+    this.rotorGain.gain.setTargetAtTime(heli * 0.1, t, 0.25);
+    this.rotorOsc.frequency.setTargetAtTime(38 + (1 - heli) * 22, t, 0.3);
     this._music(dt, state);
   }
 
@@ -281,7 +307,7 @@ export class Audio {
     if (this.muted) return;
     const station = RADIO_STATIONS[this.station];
     if (!station) return;
-    const playing = state.inCar && state.radio;
+    const playing = Boolean(state.radio);
     this.musicGain.gain.setTargetAtTime(playing ? 0.16 : 0.05, this.ctx.currentTime, 0.4);
     if (!playing && !state.menu) {
       this.nextNote = Math.max(this.nextNote, this.ctx.currentTime + 0.2);

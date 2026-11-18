@@ -165,6 +165,7 @@ export class RoadDriver {
     this.heading = points.length > 1 ? dirOf(points[0], points[1]).heading : 0;
     this.done = points.length < 2;
     this.waitTimer = 0;
+    this.braking = 0;
     this.lane = opts.lane ?? LANE;
   }
 
@@ -215,13 +216,19 @@ export class RoadDriver {
   update(dt, blocked = 0) {
     if (this.done) {
       this.speed = Math.max(0, this.speed - this.brake * dt);
+      this.braking = 1;
       return;
     }
     const corner = this.cornerSharpness();
     let wanted = this.maxSpeed * (1 - Math.min(0.72, corner * 0.85));
     if (blocked > 0) wanted *= Math.max(0, 1 - blocked);
+    const before = this.speed;
     if (wanted > this.speed) this.speed = Math.min(wanted, this.speed + this.accel * dt);
     else this.speed = Math.max(wanted, this.speed - this.brake * dt);
+    // What the renderer paints on the tail lamps: a real deceleration, or a
+    // driver standing on the brake because something is in the lane.
+    const decel = Math.max(0, before - this.speed) / Math.max(dt, 1e-4);
+    this.braking = clamp(Math.max(decel / 11, blocked * 0.8), 0, 1);
     this.distance += this.speed * dt;
     if (this.distance >= this.total) {
       this.distance = this.total;
@@ -259,6 +266,27 @@ export function lightBlocks(i, j, heading, time) {
   if (phase === 3) return true;
   const northSouth = Math.abs(Math.sin(heading)) > Math.abs(Math.cos(heading));
   return northSouth ? phase !== 0 : phase !== 2;
+}
+
+/**
+ * The lamps of one junction, for the renderer: each approach gets its own
+ * colour, so a street corner reads green one way and red the other.
+ */
+export function signalAt(i, j, time) {
+  const phase = lightPhase(i, j, time);
+  const ns = phase === 0 ? 'green' : phase === 1 ? 'amber' : 'red';
+  const ew = phase === 2 ? 'green' : phase === 1 ? 'red' : 'red';
+  return { phase, ns, ew };
+}
+
+/** Where a car heading `heading` through node (i,j) rides in its lane. */
+export function lanePoint(i, j, heading, lane = LANE) {
+  const nx = posX(nodeIndex(i, j));
+  const ny = posY(nodeIndex(i, j));
+  return {
+    x: nx - Math.sin(heading) * lane,
+    y: ny + Math.cos(heading) * lane,
+  };
 }
 
 export { ROAD, LANE };

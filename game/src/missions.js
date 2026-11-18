@@ -5,7 +5,7 @@
  * these men down, hold out, lose the Guardia), with the dialogue, the ambush
  * and the reward each step carries.
  */
-import { TILE, CITY, BEACH, HEAT } from './config.js';
+import { TILE, CITY, BEACH, HEAT, SAFEHOUSE } from './config.js';
 import { dist, clamp } from './random.js';
 import { Vehicle } from './vehicle.js';
 import { lanePolyline } from './roads.js';
@@ -29,7 +29,7 @@ export const PLACES = {
   airstrip: P(1, 1, 40, 40),
   tower: P(7, 7, 10, 10),
   lighthouse: { x: CITY + BEACH * 0.55, y: TILE * 3.5 },
-  home: P(9, 10, 30, 30),
+  home: { x: SAFEHOUSE.x, y: SAFEHOUSE.y },
 };
 
 /** The six missions, in the order the story tells them. */
@@ -37,6 +37,7 @@ export const MISSIONS = [
   {
     id: 'bienvenido',
     title: 'Bienvenido a Casa',
+    site: PLACES.beachStage,
     giver: NINA,
     brief: 'Nina has work the day you get back. Meet her on the sand, then bring a car to the lockup.',
     reward: 250,
@@ -58,6 +59,7 @@ export const MISSIONS = [
   {
     id: 'cobros',
     title: 'Cobros',
+    site: PLACES.shops[0],
     giver: NINA,
     brief: 'Three shops on the route owe the Solano crew. Collect, and do not let the last one talk you into a fight. He will try.',
     reward: 420,
@@ -97,6 +99,7 @@ export const MISSIONS = [
   {
     id: 'salcromo',
     title: 'Sal y Cromo',
+    site: PLACES.courier,
     giver: TAVO,
     brief: 'A courier in a Vulcano GT is carrying a case of Cifuentes’ paper. Stop the car, take the case, and be gone before the Guardia writes it down.',
     reward: 700,
@@ -135,6 +138,7 @@ export const MISSIONS = [
   {
     id: 'muellelargo',
     title: 'El Muelle Largo',
+    site: PLACES.marina,
     giver: NINA,
     brief: 'Drive Nina to the marina to meet a man about a boat. Cifuentes sends his answer with four men and a shotgun.',
     reward: 900,
@@ -166,6 +170,7 @@ export const MISSIONS = [
   {
     id: 'mareaalta',
     title: 'Marea Alta',
+    site: PLACES.bank,
     giver: CUERVA,
     brief: 'The Banco del Sur keeps Cifuentes’ ledgers in a room on the second floor. La Cuerva can open the door; you keep it open.',
     reward: 1800,
@@ -198,6 +203,7 @@ export const MISSIONS = [
   {
     id: 'radiosilencio',
     title: 'Radio Silencio',
+    site: PLACES.tower,
     giver: NINA,
     brief: 'Cifuentes is in the Aurora tower with his last six men. Go up, take the ledgers back, and end this. Then get to the lighthouse before the whole city answers.',
     reward: 5000,
@@ -508,6 +514,19 @@ export class Missions {
     this.text = '';
     this.mission = null;
     this.game.onMissionFailed(reason);
+  }
+
+  /** Every job on the map, with the one the story is on marked. */
+  jobMarkers() {
+    return MISSIONS.map((mission, index) => ({
+      index,
+      title: mission.title,
+      giver: mission.giver,
+      reward: mission.reward,
+      x: mission.site?.x ?? 0,
+      y: mission.site?.y ?? 0,
+      state: index < this.index ? 'done' : index === this.index ? 'next' : 'later',
+    }));
   }
 
   /** The objective line for the HUD. */

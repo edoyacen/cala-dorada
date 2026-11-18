@@ -5,10 +5,12 @@
  * light of whatever hour it is.
  */
 import {
-  TILE, ROAD, SIDEWALK, BLOCKS, CITY, BEACH, WORLD_W, WORLD_H, C, ui, display, mono,
+  TILE, ROAD, SIDEWALK, BLOCKS, CITY, BEACH, WORLD_W, WORLD_H, C, ui, display, mono, PURSUIT,
+  SAFEHOUSE,
 } from './config.js';
-import { clamp, lerp } from './random.js';
+import { clamp, lerp, smoothstep } from './random.js';
 import { onRoad } from './city.js';
+import { signalAt } from './roads.js';
 
 const ROOF_LIFT = -0.30;   // metres of fake height the roof slides up per metre
 const ROOF_SLIDE = -0.14;
@@ -34,18 +36,37 @@ export function lightOfDay(hour) {
   const NIGHT = [150, 170, 226];
   const GOLD = [255, 214, 170];
   const DAY = [255, 250, 242];
-  if (hour < 5.2) return { tint: 'rgba(34,44,86,0.66)', sun: 0.06, warm: 0.1, name: 'night' };
+  if (hour < 5.2) return { tint: 'rgba(34,44,86,0.66)', sun: 0.06, warm: 0.1, glow: 0, shadow: 0.35, name: 'night' };
   if (hour < 7.6) {
     const t = (hour - 5.2) / 2.4;
-    return { tint: mix(NIGHT, GOLD, t, lerp(0.46, 0.16, t)), sun: lerp(0.2, 0.95, t), warm: lerp(0.4, 0.12, t), name: 'sunrise' };
+    return {
+      tint: mix(NIGHT, GOLD, t, lerp(0.46, 0.16, t)),
+      sun: lerp(0.2, 0.95, t), warm: lerp(0.4, 0.12, t), glow: lerp(0.2, 0.5, t), shadow: 0.6, name: 'sunrise',
+    };
   }
-  if (hour < 16.6) return { tint: mix(DAY, DAY, 0, 0.1), sun: 1, warm: 0.05, name: 'day' };
+  if (hour < 16.4) return { tint: mix(DAY, DAY, 0, 0.1), sun: 1, warm: 0.06, glow: 0.12, shadow: 0.25, name: 'day' };
+  if (hour < 18.5) {
+    // Golden hour: the sea takes the light, the stucco goes coral and every
+    // shadow is twice as long. The staged cover is shot in this band.
+    const t = smoothstep(0, 1, (hour - 16.4) / 2.1);
+    return {
+      tint: mix([255, 206, 158], [250, 158, 152], t, lerp(0.16, 0.27, t)),
+      sun: lerp(0.94, 0.52, t),
+      warm: lerp(0.3, 0.62, t),
+      glow: lerp(0.35, 0.9, t),
+      shadow: 1,
+      name: 'golden',
+    };
+  }
   if (hour < 20) {
-    const t = (hour - 16.6) / 3.4;
-    return { tint: mix(GOLD, [214, 176, 210], t, lerp(0.16, 0.4, t)), sun: lerp(1, 0.3, t), warm: lerp(0.12, 0.5, t), name: 'dusk' };
+    const t = (hour - 18.5) / 1.5;
+    return {
+      tint: mix([246, 150, 158], [214, 176, 210], t, lerp(0.3, 0.42, t)),
+      sun: lerp(0.44, 0.28, t), warm: lerp(0.6, 0.5, t), glow: lerp(0.4, 0.18, t), shadow: 0.9, name: 'dusk',
+    };
   }
   const t = clamp((hour - 20) / 3, 0, 1);
-  return { tint: `rgba(${Math.round(lerp(46, 30, t))},${Math.round(lerp(56, 42, t))},${Math.round(lerp(104, 88, t))},${lerp(0.56, 0.68, t)})`, sun: 0.08, warm: 0.15, name: 'night' };
+  return { tint: `rgba(${Math.round(lerp(38, 30, t))},${Math.round(lerp(52, 42, t))},${Math.round(lerp(108, 92, t))},${lerp(0.48, 0.58, t)})`, sun: 0.08, warm: 0.15, glow: 0, shadow: 0.35, name: 'night' };
 }
 
 export class Renderer {
@@ -84,6 +105,7 @@ export class Renderer {
     this.drawGround(ctx, view, light);
     g.effects.drawGround(ctx, view);
     this.drawLandmarks(ctx, view, light, g.time);
+    this.drawSignals(ctx, view, g.time);
     this.drawWorldMarkers(ctx, view, g);
     this.drawBuildingShadows(ctx, view);
     this.drawSorted(ctx, view, light, g.time);
@@ -126,6 +148,25 @@ export class Renderer {
       }
     }
     // Whitecaps far out, and the sun's glitter on the near water.
+    if (light.glow > 0) {
+      // The low sun lays a warm path across the swell.
+      const path = ctx.createLinearGradient(edge + 30, 0, edge + 260, 0);
+      path.addColorStop(0, `rgba(255,214,150,${0.34 * light.glow})`);
+      path.addColorStop(0.5, `rgba(255,186,120,${0.18 * light.glow})`);
+      path.addColorStop(1, 'rgba(255,186,120,0)');
+      ctx.fillStyle = path;
+      ctx.fillRect(edge + 20, view.y0 - 20, Math.max(0, view.x1 - edge - 20), (view.y1 - view.y0) + 40);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let n = 0; n < 46; n += 1) {
+        const px = edge + 34 + ((n * 53) % 150);
+        const py = view.y0 + ((n * 97 + Math.sin(time * 1.4 + n) * 14) % Math.max(1, (view.y1 - view.y0)));
+        const flick = 0.1 + Math.abs(Math.sin(time * 2.6 + n * 0.7)) * 0.34 * light.glow;
+        ctx.fillStyle = `rgba(255,242,204,${flick})`;
+        ctx.fillRect(px, py, 5 + (n % 4) * 2, 0.9);
+      }
+      ctx.restore();
+    }
     for (let n = 0; n < 90; n += 1) {
       const px = edge + 40 + ((n * 137) % 900);
       const py = ((n * 89) % Math.max(1, Math.floor(WORLD_H + 120))) - 60;
@@ -181,6 +222,12 @@ export class Renderer {
     const glitter = 0.06 + Math.sin(time * 0.7) * 0.02;
     ctx.fillStyle = `rgba(255,244,214,${glitter})`;
     ctx.fillRect(edge - 120, Math.max(0, view.y0), 110, view.y1 - view.y0);
+    // Under the moon the sand goes blue-grey rather than brown.
+    const cool = clamp(1 - light.sun / 0.42, 0, 1);
+    if (cool > 0.02) {
+      ctx.fillStyle = `rgba(64,84,150,${0.2 * cool})`;
+      ctx.fillRect(Math.max(x0, view.x0 - 40), Math.max(0, view.y0), Math.min(x1, view.x1 + 40) - Math.max(x0, view.x0 - 40), view.y1 - view.y0);
+    }
     void light;
   }
 
@@ -328,13 +375,15 @@ export class Renderer {
   // -------------------------------------------------------------- buildings
   drawBuildingShadows(ctx, view) {
     const list = this.game.city.buildings;
+    const light = lightOfDay(this.game.clock.hour);
+    const reach = 0.55 + (light.shadow ?? 0.3) * 0.85;
     // Long shadows first, thrown east and a little south by the low sun.
     for (const b of list) {
-      if (b.x + b.w < view.x0 - 90 || b.x > view.x1 + 90) continue;
-      if (b.y + b.h < view.y0 - 90 || b.y > view.y1 + 140) continue;
-      const dx = 2.6 + b.height * 0.2;
-      const dy = 3.8 + b.height * 0.24;
-      ctx.fillStyle = 'rgba(24,20,34,0.27)';
+      if (b.x + b.w < view.x0 - 140 || b.x > view.x1 + 140) continue;
+      if (b.y + b.h < view.y0 - 140 || b.y > view.y1 + 200) continue;
+      const dx = (2.6 + b.height * 0.2) * reach;
+      const dy = (3.8 + b.height * 0.24) * reach;
+      ctx.fillStyle = `rgba(40,26,40,${0.2 + 0.12 * (light.shadow ?? 0.3)})`;
       ctx.beginPath();
       ctx.moveTo(b.x + dx, b.y + dy);
       ctx.lineTo(b.x + b.w + dx, b.y + dy);
@@ -342,6 +391,33 @@ export class Renderer {
       ctx.lineTo(b.x + dx, b.y + b.h + dy);
       ctx.closePath();
       ctx.fill();
+    }
+  }
+
+  /** The little signal heads on every corner, green one way, red the other. */
+  drawSignals(ctx, view, time) {
+    const i0 = clamp(Math.floor(view.x0 / TILE), 0, BLOCKS);
+    const i1 = clamp(Math.ceil(view.x1 / TILE), 0, BLOCKS);
+    const j0 = clamp(Math.floor(view.y0 / TILE), 0, BLOCKS);
+    const j1 = clamp(Math.ceil(view.y1 / TILE), 0, BLOCKS);
+    for (let j = j0; j <= j1; j += 1) {
+      for (let i = i0; i <= i1; i += 1) {
+        const lamp = signalAt(i, j, time);
+        const cx = i * TILE;
+        const cy = j * TILE;
+        const off = ROAD / 2 + 2.4;
+        ctx.fillStyle = 'rgba(28,26,30,0.75)';
+        ctx.fillRect(cx - off - 0.5, cy - off - 2.6, 1, 2.6);
+        ctx.fillRect(cx + off - 0.5, cy + off, 1, 2.6);
+        const dot = (x, y, colour) => {
+          ctx.fillStyle = colour;
+          ctx.beginPath();
+          ctx.arc(x, y, 0.55, 0, Math.PI * 2);
+          ctx.fill();
+        };
+        dot(cx - off, cy - off - 2.6, lamp.ns === 'green' ? '#5fe08a' : lamp.ns === 'amber' ? '#ffc14d' : '#ff4d5e');
+        dot(cx + off, cy + off + 2.6, lamp.ew === 'green' ? '#5fe08a' : '#ff4d5e');
+      }
     }
   }
 
@@ -505,6 +581,57 @@ export class Renderer {
     }
     // Roof furniture: plant, tanks, vents, a garden, a helipad or a pool.
     this.roofDetails(ctx, b, rx, ry, night, roofTint);
+    // Casa de Rafa's roof: laundry on the line, pots on the parapet, a chair
+    // and a string of bulbs, because somebody actually lives under all this.
+    if (b.x - 6 <= SAFEHOUSE.x && SAFEHOUSE.x <= b.x + b.w
+      && b.y <= SAFEHOUSE.y && SAFEHOUSE.y <= b.y + b.h) {
+      const lx = rx + 8;
+      const ly = ry + b.h - 20;
+      ctx.strokeStyle = 'rgba(40,36,44,0.55)';
+      ctx.lineWidth = 0.25;
+      ctx.beginPath();
+      ctx.moveTo(lx - 1.2, ly - 3);
+      ctx.lineTo(lx - 1.2, ly + 1.6);
+      ctx.moveTo(lx + 19.2, ly - 3);
+      ctx.lineTo(lx + 19.2, ly + 1.6);
+      ctx.moveTo(lx - 1.2, ly - 2.6);
+      ctx.quadraticCurveTo(lx + 9, ly - 0.6, lx + 19.2, ly - 2.6);
+      ctx.stroke();
+      const wash = ['#f4f1e8', '#e8574f', '#6fd3c7', '#ffd166', '#8fb8e8'];
+      for (let n = 0; n < 5; n += 1) {
+        const wx = lx + 1.4 + n * 3.9;
+        const sag = Math.sin(((wx - lx) / 20.4) * Math.PI) * 2;
+        ctx.fillStyle = wash[n % wash.length];
+        ctx.fillRect(wx, ly - 2.4 + sag, 2.2, 3.6);
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
+        ctx.fillRect(wx, ly + 1 + sag, 2.2, 0.5);
+      }
+      // Potted plants along the front wall.
+      for (let n = 0; n < 3; n += 1) {
+        ctx.fillStyle = '#a8552f';
+        ctx.fillRect(rx + 7 + n * 3.1, ry + b.h - 7.4, 1.5, 1.3);
+        ctx.fillStyle = '#4a7a45';
+        ctx.beginPath();
+        ctx.arc(rx + 7.75 + n * 3.1, ry + b.h - 8, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // A plastic chair and a table with a drink on it.
+      ctx.fillStyle = 'rgba(240,240,230,0.8)';
+      ctx.fillRect(rx + 30, ry + b.h - 14, 2.2, 2.2);
+      ctx.fillRect(rx + 34, ry + b.h - 15.5, 2.6, 2.6);
+      ctx.fillStyle = 'rgba(210,90,70,0.9)';
+      ctx.beginPath();
+      ctx.arc(rx + 35.2, ry + b.h - 14.4, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      if (night) {
+        ctx.fillStyle = '#ffd9a0';
+        for (let n = 0; n < 7; n += 1) {
+          ctx.beginPath();
+          ctx.arc(rx + 8 + n * 2.4, ry + b.h - 4.2 + Math.sin(n * 1.7) * 0.4, 0.24, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
     if (b.district === 'beach' && b.height > 14 && b.w > 26) {
       ctx.fillStyle = 'rgba(70,178,190,0.85)';
       rr(ctx, rx + b.w * 0.3, ry + b.h * 0.34, b.w * 0.36, b.h * 0.24, 0.8);
@@ -759,12 +886,13 @@ export class Renderer {
           ctx.arc(p.x, p.y, 0.55, 0, Math.PI * 2);
           ctx.fill();
           if (night) {
-            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 12);
-            g.addColorStop(0, 'rgba(255,208,130,0.30)');
-            g.addColorStop(1, 'rgba(255,208,130,0)');
+            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 17);
+            g.addColorStop(0, 'rgba(255,212,140,0.42)');
+            g.addColorStop(0.55, 'rgba(255,200,120,0.15)');
+            g.addColorStop(1, 'rgba(255,200,120,0)');
             ctx.fillStyle = g;
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, 17, 0, Math.PI * 2);
             ctx.fill();
           }
           break;
@@ -995,6 +1123,105 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(mark.x, mark.y - 8.4, 0.7, 0, Math.PI * 2);
         ctx.fill();
+      } else if (mark.kind === 'safehouse') {
+        // A driveway, a rolling garage door, a neon strip and the boombox on
+        // the step. The save prompt appears when Rafa stands on this pad.
+        ctx.fillStyle = '#6d6862';
+        ctx.fillRect(mark.x - 3.6, mark.y - 5.2, 7.2, 10.4);
+        ctx.strokeStyle = 'rgba(244,238,220,0.5)';
+        ctx.lineWidth = 0.3;
+        ctx.strokeRect(mark.x - 3.6, mark.y - 5.2, 7.2, 10.4);
+        for (let k = -1; k <= 1; k += 1) {
+          ctx.beginPath();
+          ctx.moveTo(mark.x + k * 2.2, mark.y - 5.2);
+          ctx.lineTo(mark.x + k * 2.2, mark.y - 3.4);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#3d3a3c';
+        ctx.fillRect(mark.x - 3.2, mark.y - 5.2, 6.4, 1.5);
+        ctx.strokeStyle = 'rgba(190,180,170,0.35)';
+        ctx.lineWidth = 0.18;
+        for (let k = 0; k < 6; k += 1) {
+          ctx.beginPath();
+          ctx.moveTo(mark.x - 3.1 + k * 1.05, mark.y - 5.1);
+          ctx.lineTo(mark.x - 3.1 + k * 1.05, mark.y - 3.7);
+          ctx.stroke();
+        }
+        ctx.fillStyle = C.neon;
+        ctx.fillRect(mark.x - 3.4, mark.y + 5.4, 6.8, 0.55);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const neon = ctx.createRadialGradient(mark.x, mark.y + 5.6, 0, mark.x, mark.y + 5.6, 7);
+        neon.addColorStop(0, 'rgba(255,80,150,0.28)');
+        neon.addColorStop(1, 'rgba(255,80,150,0)');
+        ctx.fillStyle = neon;
+        ctx.beginPath();
+        ctx.arc(mark.x, mark.y + 5.6, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        // The flat's name, painted on the step in neon.
+        ctx.fillStyle = 'rgba(12,10,16,0.55)';
+        ctx.fillRect(mark.x - 8.2, mark.y + 6.2, 9.4, 2.2);
+        ctx.fillStyle = '#ffd0e4';
+        ctx.font = '700 1.15px ui-sans-serif, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('CASA DE RAFA', mark.x - 3.5, mark.y + 7.8);
+        ctx.textAlign = 'left';
+        // Boombox.
+        ctx.fillStyle = '#22242a';
+        ctx.fillRect(mark.x + 3.1, mark.y + 3.4, 1.5, 1.9);
+        ctx.fillStyle = '#b9b2a2';
+        ctx.beginPath();
+        ctx.arc(mark.x + 3.55, mark.y + 4.35, 0.36, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(mark.x + 4.2, mark.y + 4.35, 0.36, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f2c14b';
+        for (let k = 0; k < 3; k += 1) {
+          const pulse = 0.35 + 0.65 * Math.abs(Math.sin(time * 5 + k));
+          ctx.globalAlpha = pulse;
+          ctx.fillRect(mark.x + 3.35 + k * 0.4, mark.y + 3.1, 0.22, 0.3);
+        }
+        ctx.globalAlpha = 1;
+      } else if (mark.kind === 'lifeguard') {
+        ctx.fillStyle = 'rgba(30,26,30,0.22)';
+        ctx.fillRect(mark.x + 1.4, mark.y + 1.2, 4, 3);
+        ctx.fillStyle = '#f4efe2';
+        ctx.fillRect(mark.x - 2, mark.y - 2, 4, 4);
+        ctx.fillStyle = '#d3543f';
+        ctx.fillRect(mark.x - 2.4, mark.y - 2.4, 4.8, 4.8);
+        ctx.fillStyle = '#f4efe2';
+        ctx.fillRect(mark.x - 1.5, mark.y - 1.5, 3, 3);
+        ctx.strokeStyle = '#8a8274';
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        ctx.moveTo(mark.x + 2.6, mark.y);
+        ctx.lineTo(mark.x + 2.6, mark.y - 5);
+        ctx.stroke();
+        ctx.fillStyle = '#e8433f';
+        ctx.fillRect(mark.x + 2.6, mark.y - 5, 2.2, 1.2);
+      } else if (mark.kind === 'bar') {
+        ctx.fillStyle = 'rgba(30,26,30,0.22)';
+        ctx.beginPath();
+        ctx.ellipse(mark.x + 1.6, mark.y + 1.6, 5.2, 3.6, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#9a7550';
+        ctx.beginPath();
+        ctx.arc(mark.x, mark.y, 4.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(90,64,40,0.6)';
+        ctx.lineWidth = 0.25;
+        for (let k = -3; k <= 3; k += 1) {
+          ctx.beginPath();
+          ctx.moveTo(mark.x + k * 1.2, mark.y - 4.2);
+          ctx.lineTo(mark.x + k * 1.2, mark.y + 4.2);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#f4efe2';
+        ctx.fillRect(mark.x - 2.6, mark.y - 0.5, 5.2, 1);
+        ctx.fillStyle = C.cyan;
+        ctx.fillRect(mark.x - 2.6, mark.y - 3.4, 5.2, 0.4);
       }
     }
   }
@@ -1101,6 +1328,18 @@ export class Renderer {
     ctx.fillStyle = shade(body, -0.08);
     rr(ctx, -L * 0.1, -W / 2 + 0.5, L * 0.28, W - 1, 0.3);
     ctx.fill();
+    // A show car's stripe runs the length of the bonnet and the roof.
+    if (car.stripe && !car.wrecked) {
+      ctx.fillStyle = car.stripe;
+      ctx.fillRect(-L * 0.47, -W * 0.24, L * 0.92, W * 0.16);
+      ctx.fillRect(-L * 0.47, W * 0.08, L * 0.92, W * 0.16);
+    }
+    // A rear wing on the sports and muscle cars.
+    if (car.spoiler && !car.wrecked) {
+      ctx.fillStyle = shade(body, -0.3);
+      rr(ctx, -L / 2 - 0.12, -W / 2 + 0.18, 0.34, W - 0.36, 0.12);
+      ctx.fill();
+    }
     // Patrol livery.
     if (car.police && !car.wrecked) {
       ctx.fillStyle = '#20242c';
@@ -1111,23 +1350,32 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(L * 0.06, 0, W * 0.16, 0, Math.PI * 2);
       ctx.fill();
+      // A light bar with two lamps, and both of them washing the street.
       const t = car.siren;
       const red = Math.sin(t) > 0;
-      ctx.fillStyle = red ? '#ff3b52' : '#3b6bff';
-      ctx.fillRect(-0.5, -W * 0.34, 1.0, W * 0.32);
-      ctx.fillRect(-0.5, W * 0.02, 1.0, W * 0.32);
-      if (red) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const g = ctx.createRadialGradient(-0.2, 0, 0, -0.2, 0, 9);
-        g.addColorStop(0, 'rgba(255,60,80,0.32)');
-        g.addColorStop(1, 'rgba(255,60,80,0)');
+      ctx.fillStyle = red ? '#ff3b52' : '#7a2430';
+      ctx.fillRect(-0.62, -W * 0.36, 1.06, W * 0.3);
+      ctx.fillStyle = red ? '#26307a' : '#3b6bff';
+      ctx.fillRect(-0.62, W * 0.06, 1.06, W * 0.3);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const lamp = (x, y, colour) => {
+        const g = ctx.createRadialGradient(x, y, 0, x, y, 11);
+        g.addColorStop(0, colour);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(-0.2, 0, 9, 0, Math.PI * 2);
+        ctx.arc(x, y, 11, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
+      };
+      if (red) {
+        lamp(-0.2, -W * 0.22, 'rgba(255,60,80,0.4)');
+        lamp(-0.2, W * 0.22, 'rgba(80,120,255,0.12)');
+      } else {
+        lamp(-0.2, -W * 0.22, 'rgba(255,60,80,0.12)');
+        lamp(-0.2, W * 0.22, 'rgba(80,120,255,0.42)');
       }
+      ctx.restore();
     }
     // Taxi sign and livery.
     if (car.type === 'taxi' && !car.wrecked) {
@@ -1171,6 +1419,25 @@ export class Renderer {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    }
+    // Hazard flashers on a super or a car that has pulled over for a cruiser.
+    if (car.hazard > 0 && !car.wrecked) {
+      const on = Math.sin(performance.now() / 130) > -0.2;
+      if (on) {
+        ctx.fillStyle = '#ffb347';
+        ctx.fillRect(-L / 2 + 0.02, -W / 2 + 0.2, 0.26, 0.42);
+        ctx.fillRect(-L / 2 + 0.02, W / 2 - 0.62, 0.26, 0.42);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = ctx.createRadialGradient(-L / 2, 0, 0, -L / 2, 0, 7);
+        glow.addColorStop(0, 'rgba(255,179,71,0.26)');
+        glow.addColorStop(1, 'rgba(255,179,71,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(-L / 2, 0, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
     // Damage: dents and a cracked windscreen.
     if (car.damage > 0.4) {
@@ -1226,6 +1493,27 @@ export class Renderer {
     ctx.rotate(ped.h);
     const swing = Math.sin(ped.walkCycle * 3.4) * (ped.state === 'flee' ? 0.5 : 0.3);
     this.drawPersonShape(ctx, ped, 0, 0, swing, false);
+    // A phone held up at the chase: the coast's own news crew.
+    if (ped.filming > 0) {
+      ctx.fillStyle = '#1c1c22';
+      ctx.save();
+      ctx.translate(0.52, -0.46);
+      ctx.rotate(-0.35);
+      ctx.fillRect(-0.11, -0.2, 0.22, 0.4);
+      ctx.fillStyle = 'rgba(140,220,255,0.9)';
+      ctx.fillRect(-0.08, -0.16, 0.16, 0.32);
+      ctx.restore();
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const glow = ctx.createRadialGradient(0.55, -0.5, 0, 0.55, -0.5, 2.2);
+      glow.addColorStop(0, 'rgba(150,225,255,0.28)');
+      glow.addColorStop(1, 'rgba(150,225,255,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0.55, -0.5, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -1387,31 +1675,98 @@ export class Renderer {
   // ------------------------------------------------------------- atmosphere
   drawAtmosphere(ctx, cam, view, light, time) {
     const g = this.game;
-    // Helicopter searchlight at four stars and above.
-    if (g.police.stars >= 4 && !g.player.veh) {
-      const heliX = g.player.x + Math.cos(time * 0.6) * 26;
-      const heliY = g.player.y - 34 + Math.sin(time * 0.8) * 8;
-      ctx.save();
-      ctx.fillStyle = 'rgba(20,22,30,0.85)';
+    // The Guardia helicopter: a real aircraft from police.js, with a rotor, a
+    // tail boom and a lamp that sweeps the street it is following.
+    const heli = g.police.heli;
+    if (heli) {
+      const night = light.sun < 0.5;
+      const spot = heli.spot;
+      const ang = Math.atan2(spot.y - heli.y, spot.x - heli.x);
+      // Its shadow on the city below, offset by the low sun.
+      ctx.fillStyle = 'rgba(18,16,24,0.2)';
       ctx.beginPath();
-      ctx.ellipse(heliX, heliY + 2, 2.4, 0.9, 0, 0, Math.PI * 2);
+      ctx.ellipse(heli.x + 7, heli.y + 11, 7.4, 2.6, ang, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(220,225,235,0.6)';
-      ctx.lineWidth = 0.25;
+      // Searchlight: cone from the lamp to the pool on the ground.
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const cone = ctx.createLinearGradient(heli.x, heli.y, spot.x, spot.y);
+      cone.addColorStop(0, `rgba(255,246,200,${night ? 0.26 : 0.12})`);
+      cone.addColorStop(0.7, `rgba(255,246,200,${night ? 0.1 : 0.05})`);
+      cone.addColorStop(1, 'rgba(255,246,200,0)');
+      ctx.fillStyle = cone;
       ctx.beginPath();
-      ctx.moveTo(heliX - 3.4, heliY + 1.6);
-      ctx.lineTo(heliX + 3.4, heliY + 1.6);
-      ctx.stroke();
-      const g2 = ctx.createLinearGradient(heliX, heliY, g.player.x, g.player.y);
-      g2.addColorStop(0, 'rgba(255,246,200,0.20)');
-      g2.addColorStop(1, 'rgba(255,246,200,0.05)');
-      ctx.fillStyle = g2;
-      ctx.beginPath();
-      ctx.moveTo(heliX - 1, heliY);
-      ctx.lineTo(g.player.x - 7, g.player.y + 4);
-      ctx.lineTo(g.player.x + 7, g.player.y + 4);
-      ctx.lineTo(heliX + 1, heliY);
+      ctx.moveTo(heli.x, heli.y);
+      ctx.arc(spot.x, spot.y, 14, ang + Math.PI - 0.28, ang + Math.PI + 0.28);
       ctx.closePath();
+      ctx.fill();
+      const pool = ctx.createRadialGradient(spot.x, spot.y, 0, spot.x, spot.y, 10);
+      pool.addColorStop(0, `rgba(255,248,208,${night ? 0.3 : 0.14})`);
+      pool.addColorStop(1, 'rgba(255,248,208,0)');
+      ctx.fillStyle = pool;
+      ctx.beginPath();
+      ctx.arc(spot.x, spot.y, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // The machine itself.
+      ctx.save();
+      ctx.translate(heli.x, heli.y);
+      ctx.rotate(heli.heading);
+      ctx.fillStyle = '#20242c';
+      rr(ctx, -6.4, -0.42, 4.6, 0.84, 0.3);
+      ctx.fill();
+      ctx.fillStyle = '#2b3038';
+      rr(ctx, -2.2, -1.15, 4.1, 2.3, 1.0);
+      ctx.fill();
+      ctx.fillStyle = '#9fc2cf';
+      rr(ctx, 0.2, -0.62, 1.5, 1.24, 0.5);
+      ctx.fill();
+      ctx.fillStyle = '#f2f4f7';
+      ctx.fillRect(-1.4, -1.2, 2.6, 0.4);
+      ctx.fillRect(-1.4, 0.8, 2.6, 0.4);
+      // Skids.
+      ctx.strokeStyle = '#14161c';
+      ctx.lineWidth = 0.3;
+      ctx.beginPath();
+      ctx.moveTo(-1.6, -1.5);
+      ctx.lineTo(1.6, -1.5);
+      ctx.moveTo(-1.6, 1.5);
+      ctx.lineTo(1.6, 1.5);
+      ctx.stroke();
+      // Rotor blur and two blades.
+      ctx.strokeStyle = 'rgba(232,238,244,0.16)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.arc(-0.2, 0, 5.8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.rotate(heli.rotor);
+      ctx.strokeStyle = 'rgba(226,232,240,0.55)';
+      ctx.lineWidth = 0.34;
+      ctx.beginPath();
+      ctx.moveTo(-5.7, 0);
+      ctx.lineTo(5.3, 0);
+      ctx.moveTo(0, -5.7);
+      ctx.lineTo(0, 5.3);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(60,66,76,0.8)';
+      ctx.lineWidth = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(-0.2, 0);
+      ctx.lineTo(5.4, 0);
+      ctx.stroke();
+      // Nav lights and the red beacon.
+      const blink = Math.sin(time * 7) > 0;
+      ctx.fillStyle = blink ? '#ff4d5e' : '#5a2028';
+      ctx.beginPath();
+      ctx.arc(-5.9, 0, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#6fe08a';
+      ctx.beginPath();
+      ctx.arc(1.6, 1.45, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = blink ? '#fff2c0' : 'rgba(255,242,192,0.3)';
+      ctx.beginPath();
+      ctx.arc(-2.7, 0, 0.36, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1454,12 +1809,43 @@ export class Renderer {
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
     }
+    // Moonlight: a cool wash so night keeps its blues instead of going muddy.
+    if (light.sun < 0.5) {
+      const cool = (0.5 - light.sun) * 0.9;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const moon = ctx.createRadialGradient(w * 0.76, h * 0.1, 10, w * 0.76, h * 0.1, Math.max(w, h) * 0.85);
+      moon.addColorStop(0, `rgba(112,152,222,${0.18 * cool})`);
+      moon.addColorStop(0.5, `rgba(78,110,176,${0.05 * cool})`);
+      moon.addColorStop(1, 'rgba(60,80,140,0)');
+      ctx.fillStyle = moon;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
     // Warm sun wash from the top of the frame.
     const sun = ctx.createLinearGradient(0, 0, 0, h);
-    sun.addColorStop(0, `rgba(255,214,150,${0.10 * light.sun})`);
+    sun.addColorStop(0, `rgba(255,214,150,${0.10 * light.sun + 0.05 * (light.glow ?? 0)})`);
     sun.addColorStop(0.5, 'rgba(255,214,150,0)');
     ctx.fillStyle = sun;
     ctx.fillRect(0, 0, w, h);
+    // Golden hour: the low sun blooms in from the west and softens the far
+    // side of the frame, which is what makes the staged cover read as dusk.
+    if (light.glow > 0.02) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const bloom = ctx.createRadialGradient(w * 0.14, h * 0.06, 8, w * 0.14, h * 0.06, Math.max(w, h) * 0.8);
+      bloom.addColorStop(0, `rgba(255,198,132,${0.3 * light.glow})`);
+      bloom.addColorStop(0.4, `rgba(255,148,104,${0.1 * light.glow})`);
+      bloom.addColorStop(1, 'rgba(255,120,80,0)');
+      ctx.fillStyle = bloom;
+      ctx.fillRect(0, 0, w, h);
+      const haze = ctx.createLinearGradient(0, h * 0.55, w, h * 0.2);
+      haze.addColorStop(0, `rgba(255,176,120,${0.06 * light.glow})`);
+      haze.addColorStop(0.6, 'rgba(255,176,120,0)');
+      ctx.fillStyle = haze;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
     // Rain.
     if (g.weather.rain > 0) {
       ctx.save();

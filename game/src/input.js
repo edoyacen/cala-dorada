@@ -26,7 +26,7 @@ export class Input {
     const block = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'Tab',
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyQ', 'KeyR',
-      'Digit1', 'Digit2', 'Digit3', 'Digit4', 'KeyM', 'KeyH', 'Escape', 'Enter',
+      'Digit1', 'Digit2', 'Digit3', 'Digit4', 'KeyM', 'KeyH', 'KeyF', 'KeyP', 'KeyJ', 'Escape', 'Enter',
     ]);
     window.addEventListener('keydown', (e) => {
       if (block.has(e.code)) e.preventDefault();
@@ -93,6 +93,18 @@ export class Input {
 
   hit(code) {
     return this.tapped.has(code);
+  }
+
+  /** True once when any of these keys went down this frame. */
+  hitAny(...codes) {
+    return codes.some((code) => this.tapped.has(code));
+  }
+
+  /** Read and clear a one-frame key press, for a key two systems share. */
+  take(code) {
+    if (!this.tapped.has(code)) return false;
+    this.tapped.delete(code);
+    return true;
   }
 
   /** Clear the one-frame edge sets; called at the end of every frame. */

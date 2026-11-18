@@ -4,7 +4,7 @@
  * off, officers on foot who will shoot and can bust you, roadblocks at four
  * stars and a city that forgets you only once you have been out of sight.
  */
-import { WANTED, HEAT, WEAPONS, TILE, BLOCKS } from './config.js';
+import { WANTED, HEAT, WEAPONS, TILE, BLOCKS, HELI } from './config.js';
 import { policeCar, Vehicle } from './vehicle.js';
 import { lanePolyline, lightBlocks, posX, posY, indexI, indexJ, nodeIndex } from './roads.js';
 import { clamp, dist, makeRng, turnToward } from './random.js';
@@ -35,6 +35,9 @@ export class Police {
     this.rng = makeRng(game.seed ^ 0xc005);
     this.blockTimer = 0;
     this.alerted = false;
+    // The eye in the sky: a real aircraft that orbits Rafa at four stars, in a
+    // car or on foot, and holds its lamp on him. render.js paints it.
+    this.heli = null;
   }
 
   get stars() {
@@ -55,6 +58,10 @@ export class Police {
       this.alerted = true;
       this.game.notify('The Guardia has been alerted', 'danger');
       if (this.game.audio) this.game.audio.siren(this.game.player.x, this.game.player.y, 1.4);
+    }
+    if (this.stars >= HELI.stars && !this.heli) {
+      this.game.notify(`Air support over ${this.game.city.districtAt(this.game.player.x, this.game.player.y)}`, 'danger');
+      if (this.game.audio) this.game.audio.siren(this.game.player.x, this.game.player.y, 1.2);
     }
     if (x !== null) {
       // Nearby patrols turn toward the sound.
@@ -166,6 +173,53 @@ export class Police {
 
     this.updateUnits(dt);
     this.updateRoadblocks(dt);
+    this.updateHeli(dt);
+  }
+
+  /** The helicopter: one aircraft, orbiting, with its searchlight ahead of it. */
+  updateHeli(dt) {
+    const game = this.game;
+    const p = game.player;
+    const wanted = this.stars >= HELI.stars;
+    if (!wanted) {
+      this.heli = null;
+      return;
+    }
+    if (!this.heli) {
+      this.heli = {
+        x: p.x + Math.cos(p.h) * 26,
+        y: p.y - 34,
+        rotor: 0,
+        age: 0,
+        spot: { x: p.x, y: p.y },
+        heading: p.h,
+      };
+    }
+    const heli = this.heli;
+    const t = game.time;
+    const lead = p.veh ? 0.34 : 0.12;
+    const anchorX = p.x + (p.veh ? p.veh.vx : 0) * lead;
+    const anchorY = p.y + (p.veh ? p.veh.vy : 0) * lead - HELI.height * 0.5;
+    const orbitX = Math.cos(t * HELI.speed) * HELI.orbit * 0.42;
+    const orbitY = Math.sin(t * HELI.speed * 1.37) * HELI.orbit * 0.22;
+    const ease = 1 - Math.pow(0.22, dt);
+    heli.x += (anchorX + orbitX - heli.x) * ease;
+    heli.y += (anchorY + orbitY - heli.y) * ease;
+    heli.heading = Math.atan2(heli.spot.y - heli.y, heli.spot.x - heli.x);
+    heli.rotor += dt * 26;
+    heli.age += dt;
+    // The lamp lags the machine: it sweeps the street before it arrives.
+    const lamp = 1 - Math.pow(0.05, dt);
+    heli.spot.x += (p.x - heli.spot.x) * lamp;
+    heli.spot.y += (p.y - heli.spot.y) * lamp;
+    if (Math.random() < dt * 6) {
+      game.effects.spawn('smoke', heli.x + (Math.random() - 0.5) * 6, heli.y + (Math.random() - 0.5) * 6, {
+        life: 0.8,
+        size: 0.5,
+        grow: 1.4,
+        colour: 'rgba(226,220,206,0.18)',
+      });
+    }
   }
 
   // ------------------------------------------------------------------ units
@@ -447,6 +501,7 @@ export class Police {
     this.roadblocks.length = 0;
     this.heat = 0;
     this.alerted = false;
+    this.heli = null;
     this.bustTimer = 0;
     this.game.bustedProgress = 0;
   }

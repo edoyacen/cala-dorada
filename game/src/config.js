@@ -19,6 +19,27 @@ export const LANE = ROAD * 0.24;  // centre of a driving lane, off the street's 
 export const STEP = 1 / 60;       // fixed simulation step the game loop is driven at
 export const MAX_SPEED = 64;      // hard ceiling on any wheeled thing, m/s
 
+// Rafa's flat in Jardines: a doorway on the pavement, a garage, a boombox.
+// The simulation saves the game when he stands here and presses E, so the
+// staged safehouse frame shows a prompt that really does something.
+export const SAFEHOUSE = {
+  x: 9 * TILE + 9,
+  y: 10 * TILE + 64,
+  radius: 7.5,
+  name: 'Casa de Rafa',
+  district: 'Jardines',
+};
+
+// The Guardia's eye in the sky. It appears at four stars whether Rafa is in a
+// car or on foot, orbits a point ahead of him and keeps its lamp on him.
+export const HELI = {
+  stars: 4,
+  orbit: 34,
+  height: 46,
+  speed: 0.55,
+  spotRadius: 9,
+};
+
 // --------------------------------------------------------------- characters
 export const PLAYER = {
   radius: 0.42,
@@ -55,6 +76,7 @@ export const POLICE_COLOUR = '#f2f4f7';
 // Heat is a continuous 0..5; whole stars are what the HUD shows.
 export const WANTED = {
   star: 1.0,
+  names: ['Clear', 'Patrols', 'Pursuit', 'Pursuit', 'Air support', 'All units'],
   decayDelay: 14,       // seconds out of sight before the city calms down
   decayRate: 0.055,     // stars lost per second after that
   maxPolice: [0, 2, 3, 5, 7, 9],
@@ -83,6 +105,14 @@ export const WEAPONS = {
 };
 
 export const LOOT = { pistolAmmo: 40, smgAmmo: 120, shotgunAmmo: 24, health: 35, armour: 50, cash: 120 };
+
+// The chase the HUD and the staged cover share: how the Guardia escalates.
+export const PURSUIT = {
+  heliFrom: 4,          // stars that put a helicopter over the rooftops
+  yieldRadius: 26,      // civilians pull over this far from a lit cruiser
+  filmRadius: 26,       // tourists raise a phone this far from a speeding chase
+  sparkColour: '#ffbf68',
+};
 
 // ------------------------------------------------------------------ palette
 // A warm, bleached coast: coral stucco, mint glass, hot asphalt, cold neon HUD.
@@ -136,8 +166,8 @@ export const DISTRICTS = [
 
 // -------------------------------------------------------------- radio dial
 export const RADIO_STATIONS = [
-  { name: 'SOL 98.4 — Brisa', colour: '#ff6fa5', bpm: 104, scale: [0, 3, 5, 7, 10], root: 0 },
-  { name: 'MUELLE FM — Marea', colour: '#48d6c4', bpm: 88, scale: [0, 2, 4, 7, 9], root: 3 },
-  { name: 'CERRO 101 — Brasa', colour: '#ffb347', bpm: 126, scale: [0, 3, 5, 6, 10], root: 5 },
-  { name: 'Radio Silencio',    colour: '#9d8cff', bpm: 72, scale: [0, 2, 3, 7, 8], root: -2 },
+  { name: 'SOL 98.4',   show: 'Brisa',   tag: 'brisa · cumbia del atardecer', colour: '#ff6fa5', bpm: 104, scale: [0, 3, 5, 7, 10], root: 0 },
+  { name: 'MUELLE FM',  show: 'Marea',   tag: 'marea · dub del puerto',       colour: '#48d6c4', bpm: 88,  scale: [0, 2, 4, 7, 9],  root: 3 },
+  { name: 'CERRO 101',  show: 'Brasa',   tag: 'brasa · cumbia de motor',      colour: '#ffb347', bpm: 126, scale: [0, 3, 5, 6, 10], root: 5 },
+  { name: 'SILENCIO',   show: 'Silencio', tag: 'silencio · sólo la costa',     colour: '#9d8cff', bpm: 72,  scale: [0, 2, 3, 7, 8],  root: -2 },
 ];

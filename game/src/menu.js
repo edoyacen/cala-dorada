@@ -82,13 +82,19 @@ export function drawTitle(ctx, game, cam) {
       ctx.fillText(item.note, cx, y + 13 * k);
     }
   }
-  // Footer.
+  // The content line: what the city actually holds, in one glance.
+  const features = '18 × 18 BLOCKS   ·   6 JOBS   ·   5 WANTED STARS   ·   4 RADIO STATIONS   ·   SAVES';
+  ctx.font = mono(9.5 * k);
+  const fw = ctx.measureText(features).width;
+  ctx.fillStyle = 'rgba(8,10,14,0.5)';
+  rr(ctx, cx - fw / 2 - 16 * k, h - 108 * k, fw + 32 * k, 24 * k, 12 * k);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,214,150,0.62)';
+  ctx.fillText(features, cx, h - 92 * k);
+  // One footer line, so the keys never sit on top of each other.
   ctx.font = ui(11 * k);
   ctx.fillStyle = 'rgba(244,240,230,0.45)';
-  ctx.fillText('↑ ↓ choose  ·  Enter select  ·  Enter the city and the sun does the rest', cx, h - 58 * k);
-  ctx.fillStyle = 'rgba(244,240,230,0.28)';
-  ctx.font = mono(9.5 * k);
-  ctx.fillText('W A S D  move   ·   mouse  aim + fire   ·   E  car   ·   Shift  run / handbrake   ·   M  map   ·   Q  radio', cx, h - 34 * k);
+  ctx.fillText('↑ ↓ choose   ·   Enter select   ·   W A S D drive   ·   E car   ·   Q radio   ·   M map', cx, h - 48 * k);
   ctx.textAlign = 'left';
   // A version tag, bottom right.
   ctx.fillStyle = 'rgba(244,240,230,0.3)';
@@ -181,9 +187,10 @@ export function drawControls(ctx, game, cam) {
     ['Shift', 'run on foot, handbrake in a car'],
     ['E', 'take or leave a car'],
     ['1 2 3 4', 'fists, pistol, SMG, shotgun'],
-    ['R', 'reload'],
+    ['Wheel', 'next weapon you carry'],
     ['Q', 'next radio station'],
     ['M', 'the big map'],
+    ['F', 'fullscreen'],
     ['Esc', 'pause and save'],
     ['J', 'call Nina for the next job'],
   ];

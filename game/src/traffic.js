@@ -4,7 +4,7 @@
  * waits at a red light, brakes for the car ahead and for anyone standing in
  * the road, and is recycled onto a street near the player when it wanders off.
  */
-import { CAR_TYPES, TILE, LANE, BLOCKS } from './config.js';
+import { CAR_TYPES, TILE, LANE, BLOCKS, PURSUIT } from './config.js';
 import { Vehicle } from './vehicle.js';
 import { lanePolyline, lightBlocks, posX, posY, indexI, indexJ, nodeIndex } from './roads.js';
 import { makeRng, dist, clamp } from './random.js';
@@ -146,6 +146,16 @@ export class Traffic {
         }
       } else {
         car.horned = false;
+      }
+      // A lit cruiser coming through: pull over, brake and put the hazards on.
+      if (game.police.active && game.police.heat > 0.4) {
+        for (const unit of game.police.units) {
+          if (unit.kind !== 'car' || !unit.car) continue;
+          if (dist(unit.car.x, unit.car.y, car.x, car.y) > PURSUIT.yieldRadius) continue;
+          blocked = Math.max(blocked, 0.6);
+          car.hazard = Math.max(car.hazard, 1.1);
+          break;
+        }
       }
       car.stepLane(dt, blocked);
       // A patrol car's lightbar, or a civilian's headlights at night.

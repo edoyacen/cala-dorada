@@ -18,7 +18,9 @@ export function readSave() {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object' || data.v !== 1) return null;
+    if (!data || typeof data !== 'object') return null;
+    // v1 saves still load: the fields they carry are the ones the game reads.
+    if (data.v !== 1 && data.v !== 2) return null;
     return data;
   } catch {
     return null;
@@ -28,7 +30,7 @@ export function readSave() {
 export function writeSave(game) {
   try {
     const data = {
-      v: 1,
+      v: 2,
       t: Date.now(),
       x: Math.round(game.player.x),
       y: Math.round(game.player.y),
@@ -44,6 +46,12 @@ export function writeSave(game) {
       kills: game.player.kills,
       story: Boolean(game.storyComplete),
       district: game.city.districtAt(game.player.x, game.player.y),
+      // v2: what the radio was playing, how long the coast has been running,
+      // and the weather, so Continue feels like the same evening.
+      radio: game.audio?.station ?? 0,
+      elapsed: Math.round(game.time),
+      rain: game.weather?.rain ?? 0,
+      version: game.version ?? '',
     };
     window.localStorage.setItem(KEY, JSON.stringify(data));
     return data;

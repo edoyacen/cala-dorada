@@ -87,6 +87,61 @@ export class Effects {
     }
   }
 
+  /** Sand or dry earth thrown up by a wheel that has left the asphalt. */
+  spray(x, y, heading, strength = 1, colour = 'rgba(226,204,164,0.65)') {
+    for (let n = 0; n < 3; n += 1) {
+      const a = heading + Math.PI + (Math.random() - 0.5) * 1.1;
+      const s = 3 + Math.random() * 7 * strength;
+      this.spawn('smoke', x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        life: 0.55 + Math.random() * 0.5,
+        size: 0.8 + Math.random() * 1.1,
+        grow: 2.8 * strength,
+        colour,
+        alpha: 0.75,
+      });
+    }
+    if (this.decals.length < MAX_DECALS && Math.random() < 0.5) {
+      this.decals.push({ kind: 'sand', x, y, r: 0.7 + Math.random() * 0.8, seed: Math.random(), angle: heading, w: 1.4 });
+    }
+  }
+
+  /** Bits of bumper, glass and trim left on the road by a hard hit. */
+  debris(x, y, heading = 0, count = 5) {
+    for (let n = 0; n < count; n += 1) {
+      const a = heading + (Math.random() - 0.5) * 2.4;
+      const s = 2 + Math.random() * 7;
+      this.spawn('debris', x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        life: 1.1 + Math.random() * 0.9,
+        size: 0.22 + Math.random() * 0.26,
+        colour: Math.random() < 0.5 ? '#2a2a30' : '#d8cfae',
+        drag: 0.9,
+        spin: (Math.random() - 0.5) * 16,
+        angle: Math.random() * 6.28,
+      });
+    }
+  }
+
+  /** A fat column of dark smoke, for a wreck the chase left behind. */
+  smokeColumn(x, y, seconds = 4) {
+    const puffs = Math.round(seconds * 3);
+    for (let n = 0; n < puffs; n += 1) {
+      this.spawn('smoke', x + (Math.random() - 0.5) * 1.4, y + (Math.random() - 0.5) * 1.4, {
+        vx: (Math.random() - 0.5) * 1.2,
+        vy: -2.2 - Math.random() * 1.6,
+        life: 2.2 + Math.random() * 1.8,
+        size: 1.6 + Math.random() * 1.4,
+        grow: 2.2,
+        colour: 'rgba(38,34,36,0.55)',
+        alpha: 0.85,
+      });
+    }
+    this.spawn('fire', x, y, { life: 1.8, size: 1.8, grow: 1.4, colour: '#ff9a3c' });
+  }
+
   glass(x, y, count = 10, heading = 0) {
     for (let n = 0; n < count; n += 1) {
       const a = heading + (Math.random() - 0.5) * 1.7;
@@ -272,6 +327,10 @@ export class Effects {
       } else if (d.kind === 'shell') {
         ctx.fillStyle = 'rgba(216,181,106,0.85)';
         ctx.fillRect(-0.08, -0.16, 0.16, 0.32);
+      } else if (d.kind === 'sand') {
+        ctx.rotate(d.angle);
+        ctx.fillStyle = 'rgba(190,158,110,0.28)';
+        ctx.fillRect(-d.w / 2, -d.r, d.w, d.r * 2);
       }
       ctx.restore();
     }
@@ -306,6 +365,11 @@ export class Effects {
         ctx.rotate(p.angle);
         ctx.fillStyle = p.colour;
         ctx.fillRect(-p.size * 0.5, -p.size * 0.2, p.size, p.size * 0.4);
+      } else if (p.kind === 'debris') {
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+        ctx.fillStyle = p.colour;
+        ctx.fillRect(-p.size * 0.5, -p.size * 0.35, p.size, p.size * 0.7);
       } else if (p.kind === 'shell') {
         ctx.translate(p.x, p.y);
         ctx.rotate(p.angle);

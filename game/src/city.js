@@ -1,5 +1,5 @@
 /**
- * city.js — builds Cala Dorada: twelve by twelve blocks of coral stucco, mint
+ * city.js — builds Cala Dorada: eighteen by eighteen blocks of coral stucco, mint
  * glass and cracked asphalt between the hills and the sea, with parks, parking
  * lots, piers, palms, lamps and the small landmarks the story visits.
  *
@@ -8,7 +8,7 @@
  * per-block bucket of building rectangles.
  */
 import {
-  TILE, ROAD, SIDEWALK, BLOCKS, CITY, BEACH, WORLD_W, WORLD_H, CAR_TYPES, VEHICLE_COLOURS,
+  TILE, ROAD, SIDEWALK, BLOCKS, CITY, BEACH, WORLD_W, WORLD_H, CAR_TYPES, VEHICLE_COLOURS, SAFEHOUSE,
 } from './config.js';
 import { makeRng, clamp } from './random.js';
 
@@ -74,7 +74,9 @@ export class City {
         const size = TILE - ROAD - SIDEWALK;
         const block = { i, j, x0, y0, w: size, h: size, district, kind: 'lots' };
         this._fillBlock(block, rng);
-        this.blocks.push(block);
+        // Indexed by grid position: every reader (ground, peds, minimap, map)
+        // asks for blocks[j * BLOCKS + i], so the array must agree with it.
+        this.blocks[j * BLOCKS + i] = block;
       }
     }
     this._landmarks(rng);
@@ -244,6 +246,11 @@ export class City {
     this.landmarks.push({ kind: 'pier', x: CITY + 34, y: TILE * 7.2, len: 120 });
     this.landmarks.push({ kind: 'pier', x: CITY + 34, y: TILE * 10.4, len: 96 });
     this.landmarks.push({ kind: 'stage', x: CITY + BEACH * 0.5, y: TILE * 8.4 });
+    // Rafa's flat, the lifeguard towers and the beach bar: the coast's furniture.
+    this.landmarks.push({ kind: 'safehouse', x: SAFEHOUSE.x, y: SAFEHOUSE.y, name: SAFEHOUSE.name });
+    this.landmarks.push({ kind: 'lifeguard', x: CITY + 34, y: TILE * 9.2 });
+    this.landmarks.push({ kind: 'lifeguard', x: CITY + 36, y: TILE * 12.8 });
+    this.landmarks.push({ kind: 'bar', x: CITY + 42, y: TILE * 5.9 });
     // A sign over the beach road, and a couple of rooftop boards.
     this.signs.push({ x: CITY + BEACH * 0.3, y: TILE * 1.4, text: 'CALA DORADA', colour: '#ff5f9e', size: 6 });
     this.signs.push({ x: TILE * 4.2, y: TILE * 9.6, text: 'MUELLE 9', colour: '#4be0cf', size: 5 });
@@ -514,6 +521,24 @@ export class City {
       if ((spot.x - x) ** 2 + (spot.y - y) ** 2 < 16) return spot;
     }
     return null;
+  }
+
+  /**
+   * A point on open pavement or road between `minR` and `maxR` of (x,y), for
+   * staging people where they can actually stand. Deterministic for a seed.
+   */
+  walkableNear(x, y, minR = 2, maxR = 30) {
+    for (let ring = minR; ring <= maxR; ring += 2.5) {
+      for (let step = 0; step < 16; step += 1) {
+        const a = step * (Math.PI / 8) + ring * 0.37;
+        const px = x + Math.cos(a) * ring;
+        const py = y + Math.sin(a) * ring;
+        if (px < 6 || py < 6 || px > CITY + BEACH - 4 || py > WORLD_H - 4) continue;
+        if (this.buildingNear(px, py, 0.9)) continue;
+        return { x: px, y: py };
+      }
+    }
+    return { x, y };
   }
 }
 
