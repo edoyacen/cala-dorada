@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cala Dorada — a sun-soaked open-world crime game</title>
+<meta name="description" content="Cala Dorada: steal cars, run missions for the Solano crew and outrun the Guardia Costera in an original open-world crime game that runs offline in your browser.">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0d12; }
+  body { font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  #stage { position: fixed; inset: 0; display: block; cursor: crosshair; touch-action: none; }
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; color: #ffe9c9;
+          background: radial-gradient(120% 90% at 50% 30%, #2a1830 0%, #120a16 60%, #08060c 100%);
+          letter-spacing: .22em; font-size: 13px; text-transform: uppercase; transition: opacity .35s; }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  #boot b { color: #ff4d8d; font-weight: 800; }
+</style>
+</head>
+<body>
+<canvas id="stage" width="1280" height="720" aria-label="Cala Dorada: an open-world crime game. Drive, shoot and run missions in a sun-soaked coastal city."></canvas>
+<div id="boot"><span><b>CALA DORADA</b> — loading the city…</span></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

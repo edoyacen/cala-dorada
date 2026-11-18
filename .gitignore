@@ -1,1 +1,9 @@
+# Build output: the entry program writes it, the repository never keeps it.
 out/
+/output/
+
+# Editors, operating systems and scratch files.
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
